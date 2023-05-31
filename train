@@ -1,0 +1,68 @@
+import os
+import cv2
+import numpy as np
+from tensorflow import keras
+from sklearn.model_selection import train_test_split
+
+# Ruta de la carpeta de datos
+data_path = "C:/Users/luke2/OneDrive/Escritorio/inovatec"
+
+# Clases de etiquetas
+class_labels = ["caja_buena", "caja_mala"]
+
+# Tamaño común para redimensionar las imágenes
+image_size = (100, 100)
+
+# Cargar imágenes y etiquetas
+images = []
+labels = []
+
+for class_label in class_labels:
+    class_path = os.path.join(data_path, class_label)
+    for file_name in os.listdir(class_path):
+        image_path = os.path.join(class_path, file_name)
+        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if image is not None:
+            image = cv2.resize(image, image_size)
+            images.append(image)
+            labels.append(class_labels.index(class_label))
+
+# Convertir a arrays numpy
+images = np.array(images)
+labels = np.array(labels)
+
+# Dividir los datos en conjuntos de entrenamiento y prueba
+train_images, test_images, train_labels, test_labels = train_test_split(images, labels, test_size=0.2, random_state=42)
+
+# Normalizar las imágenes
+train_images = train_images / 255.0
+test_images = test_images / 255.0
+
+# Crear el modelo de la CNN
+model = keras.Sequential([
+    keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(image_size[0], image_size[1], 1)),
+    keras.layers.MaxPooling2D((2, 2)),
+    keras.layers.Conv2D(64, (3, 3), activation='relu'),
+    keras.layers.MaxPooling2D((2, 2)),
+    keras.layers.Conv2D(64, (3, 3), activation='relu'),
+    keras.layers.Flatten(),
+    keras.layers.Dense(64, activation='relu'),
+    keras.layers.Dense(2, activation='softmax')
+])
+
+# Compilar el modelo
+model.compile(optimizer='adam',
+              loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+              metrics=['accuracy'])
+
+# Entrenar el modelo
+model.fit(train_images, train_labels, epochs=10, validation_data=(test_images, test_labels))
+
+# Evaluar el modelo en el conjunto de prueba
+test_loss, test_acc = model.evaluate(test_images, test_labels)
+print(f"Precisión del modelo en el conjunto de prueba: {test_acc}")
+
+# Guardar el modelo en formato HDF5
+model.save("inovatec_model.h5")
+
+print("Modelo guardado exitosamente.")
