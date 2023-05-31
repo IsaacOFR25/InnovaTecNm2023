@@ -1,0 +1,164 @@
+#prefinal
+import cv2
+import numpy as np
+import tkinter as tk
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from PIL import ImageDraw, ImageFont, ImageTk, Image
+from tensorflow import keras
+
+# Cargar el modelo previamente entrenado
+model = keras.models.load_model("inovatec_model.h5")
+
+# Etiquetas de las clases
+class_labels = ["caja_buena", "caja_mala"]
+
+# Colores para dibujar los rectángulos
+color_good = (0, 255, 0)  # Verde
+color_defective = (255, 0, 0)  # Rojo
+
+# Grosor del perímetro del rectángulo
+thickness = 4
+
+# Inicializar la cámara
+cap = cv2.VideoCapture(0)
+
+# Crear ventana
+window = tk.Tk()
+window.title("Detección de Cajas")
+window.resizable(False, False)  # Evitar que la ventana se pueda redimensionar
+window.configure(bg="white")  # Establecer el color de fondo en blanco
+
+# Crear cinta de fondo en la parte superior
+title_frame = tk.Frame(window, bg="#0078d4", width=window.winfo_screenwidth(), height=60)
+title_frame.pack(fill=tk.X)  # Expandir horizontalmente
+
+# Crear etiqueta de título
+title_label = tk.Label(title_frame, text="Detección de daños en cajas", font=("Open Sans", 25, "bold"), bg="#0078d4", fg="white")
+title_label.pack(pady=10)
+
+# Obtener el tamaño del frame de la cámara
+ret, frame = cap.read()
+if ret:
+    frame_height, frame_width, _ = frame.shape
+else:
+    frame_height, frame_width = 480, 640  # Tamaño por defecto
+
+# Crear frame para contener la imagen y los gráficos
+frame_container = tk.Frame(window, bg="white")
+frame_container.pack(pady=10)
+
+# Crear canvas para mostrar la imagen
+canvas_img = tk.Canvas(frame_container, width=frame_width, height=frame_height, bg="white")
+canvas_img.pack(side=tk.LEFT)
+
+# Crear canvas para mostrar los gráficos en una cuadrícula
+canvas_graphs = tk.Canvas(frame_container, width=frame_width, height=frame_height, bg="white")
+canvas_graphs.pack(side=tk.RIGHT)
+
+# Crear figuras y ejes para los gráficos
+fig, axs = plt.subplots(2, 2, figsize=(6, 6), dpi=80, facecolor="white")  # Establecer el fondo del Figure en blanco
+
+# Ajustar el espacio entre los subplots
+plt.subplots_adjust(hspace=0.4, wspace=0.4)
+
+# Crear objetos FigureCanvasTkAgg para mostrar los gráficos en los canvas
+canvas_graphs = FigureCanvasTkAgg(fig, master=canvas_graphs)
+canvas_graphs.draw()
+canvas_graphs.get_tk_widget().pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
+
+def detect_cajas(frame):
+    # Convertir el fotograma a escala de grises
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    # Preprocesar la imagen
+    resized_frame = cv2.resize(gray_frame, (100, 100))
+    normalized_frame = resized_frame / 255.0
+    input_data = np.expand_dims(normalized_frame, axis=0)
+    input_data = np.expand_dims(input_data, axis=3)
+
+    # Realizar la predicción con el modelo
+    predictions = model.predict(input_data)
+    predicted_class = np.argmax(predictions[0])
+    class_label = class_labels[predicted_class]
+
+    # Dibujar el rectángulo alrededor de las cajas
+    color = color_good if predicted_class == 0 else color_defective
+    thickness = 12 if predicted_class == 0 else 12
+
+    # Dibujar el rectángulo en el frame
+    cv2.rectangle(frame, (0, 0), (frame_width, frame_height), color, thickness)
+
+    return frame, predictions[0]
+
+def capture_frame():
+    ret, frame = cap.read()
+    if ret:
+        frame = cv2.flip(frame, 1)  # Voltear la imagen horizontalmente (efecto espejo)
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # Crear una imagen de fondo transparente del mismo tamaño que el frame
+        overlay = Image.new("RGBA", (frame_width, frame_height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        # Definir las coordenadas y el estilo del título
+        title = "Detección en tiempo real"
+        font = ImageFont.truetype("arial.ttf", 30)  # Cambia la fuente y el tamaño según tus preferencias
+        text_width, text_height = draw.textsize(title, font=font)
+        x = (frame_width - text_width) // 2  # Centrar horizontalmente
+        y = 10  # Espacio superior de 10 píxeles
+
+        # Dibujar el título en el overlay
+        draw.text((x, y), title, font=font, fill=(255, 255, 255, 128))
+
+        # Fusionar el overlay con la imagen del frame
+        frame = Image.fromarray(frame)
+        frame = Image.alpha_composite(frame.convert("RGBA"), overlay)
+        frame = frame.convert("RGB")
+
+        # Convertir la imagen de nuevo a un arreglo numpy
+        frame = np.array(frame)
+
+        frame, predictions = detect_cajas(frame)
+
+        img = ImageTk.PhotoImage(Image.fromarray(frame))
+        canvas_img.img = img  # Guardar referencia para evitar la recolección de basura
+        canvas_img.create_image(0, 0, anchor=tk.NW, image=img)
+
+        # Actualizar los gráficos con las probabilidades de las predicciones
+        for ax in axs.flatten():
+            ax.clear()
+
+        fig.suptitle("Comportamiento de la predicción", fontsize=16)  # Título general para los gráficos
+
+        axs[0, 0].bar(class_labels, predictions, color=['green', 'red'])
+        axs[0, 0].set_ylim([0, 1])
+        axs[0, 0].set_xlabel('Clase')
+        axs[0, 0].set_ylabel('Probabilidad')
+
+        axs[0, 1].plot(class_labels, predictions, marker='o', linestyle='-', color='blue')
+        axs[0, 1].set_ylim([0, 1])
+        axs[0, 1].set_xlabel('Clase')
+        axs[0, 1].set_ylabel('Probabilidad')
+
+        axs[1, 0].pie(predictions, labels=class_labels, colors=['green', 'red'], autopct='%1.1f%%')
+        axs[1, 0].set_aspect('equal')
+
+        axs[1, 1].barh(class_labels, predictions, color=['green', 'red'])
+        axs[1, 1].set_xlim([0, 1])
+        axs[1, 1].set_xlabel('Probabilidad')
+        axs[1, 1].set_ylabel('Clase')
+
+        canvas_graphs.draw()
+
+    window.after(10, capture_frame)
+
+# Iniciar la captura de frames
+capture_frame()
+
+# Iniciar el bucle principal de la ventana
+window.mainloop()
+
+# Liberar la cámara y cerrar las ventanas al finalizar
+cap.release()
+cv2.destroyAllWindows()
